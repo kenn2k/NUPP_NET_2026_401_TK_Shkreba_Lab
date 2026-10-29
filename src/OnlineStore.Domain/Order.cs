@@ -6,9 +6,12 @@ public sealed class Order
 
     public Order(Customer customer)
     {
-        Customer = customer ?? throw new ArgumentNullException(nameof(customer));
+        ArgumentNullException.ThrowIfNull(customer);
+        customer.Validate();
+
+        Customer = customer;
         Id = Guid.NewGuid();
-        Status = OrderStatus.Draft;
+        Status = OrderStatus.Created;
     }
 
     public Guid Id { get; }
@@ -19,12 +22,9 @@ public sealed class Order
 
     public void AddItem(Product product, int quantity)
     {
-        EnsureDraft();
+        EnsureCreated();
 
-        if (product is null)
-        {
-            throw new ArgumentNullException(nameof(product));
-        }
+        ArgumentNullException.ThrowIfNull(product);
 
         if (quantity <= 0)
         {
@@ -43,7 +43,7 @@ public sealed class Order
 
     public void RemoveItem(Guid productId)
     {
-        EnsureDraft();
+        EnsureCreated();
 
         var item = _items.SingleOrDefault(orderItem => orderItem.Product.Id == productId)
             ?? throw new InvalidOperationException("The product is not in this order.");
@@ -53,7 +53,7 @@ public sealed class Order
 
     public PaymentReceipt Pay(IPaymentMethod paymentMethod)
     {
-        EnsureDraft();
+        EnsureCreated();
 
         if (_items.Count == 0)
         {
@@ -67,31 +67,60 @@ public sealed class Order
         return receipt;
     }
 
+    public void Ship()
+    {
+        if (Status != OrderStatus.Paid)
+        {
+            throw new InvalidOperationException("Only a paid order can be shipped.");
+        }
+
+        Status = OrderStatus.Shipped;
+    }
+
+    public void Deliver()
+    {
+        if (Status != OrderStatus.Shipped)
+        {
+            throw new InvalidOperationException("Only a shipped order can be delivered.");
+        }
+
+        Status = OrderStatus.Delivered;
+    }
+
     public void Cancel()
     {
-        if (Status == OrderStatus.Paid)
-        {
-            throw new InvalidOperationException("A paid order cannot be cancelled.");
-        }
-
-        if (Status == OrderStatus.Cancelled)
-        {
-            throw new InvalidOperationException("The order is already cancelled.");
-        }
-
+        EnsureCreated();
         Status = OrderStatus.Cancelled;
     }
 
-    private void EnsureDraft()
+    public string GetStatusDescription() => Status switch
     {
-        if (Status == OrderStatus.Paid)
-        {
-            throw new InvalidOperationException("A paid order cannot be changed or paid again.");
-        }
+        OrderStatus.Created => "Created",
+        OrderStatus.Paid => "Paid",
+        OrderStatus.Shipped => "Shipped",
+        OrderStatus.Delivered => "Delivered",
+        OrderStatus.Cancelled => "Cancelled",
+        _ => "Unknown"
+    };
 
-        if (Status == OrderStatus.Cancelled)
+    public string GetOrderCategory() => Total switch
+    {
+        < 500m => "Small",
+        < 5000m => "Medium",
+        _ => "Large"
+    };
+
+    public string GetDeliveryOption() => this switch
+    {
+        { Status: OrderStatus.Paid, Total: >= 2000m } => "Free Delivery",
+        _ => "Standard Delivery"
+    };
+
+    private void EnsureCreated()
+    {
+        if (Status != OrderStatus.Created)
         {
-            throw new InvalidOperationException("A cancelled order cannot be changed or paid.");
+            throw new InvalidOperationException($"An order with status {Status} cannot be changed or paid.");
         }
     }
 }
