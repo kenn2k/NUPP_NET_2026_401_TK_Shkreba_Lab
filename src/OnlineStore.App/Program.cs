@@ -1,6 +1,7 @@
 using OnlineStore.Domain;
+using OnlineStore.App.Services;
 
-Console.WriteLine("OnlineStore — Laboratory Work 4");
+Console.WriteLine("OnlineStore — Laboratory Work 5");
 Console.WriteLine("Student: Anton Shkreba | Group: 301 TK | Variant: 1");
 Console.WriteLine();
 
@@ -108,6 +109,39 @@ var hasOrderOver10000 = orders.Any(order => order.Total > 10000m);
 Dictionary<Guid, decimal> spendingByCustomer = orders
     .GroupBy(order => order.Customer.Id)
     .ToDictionary(group => group.Key, group => group.Sum(order => order.Total));
+
+PrintHeading("Laboratory Work 5: delegates, events and extensions");
+
+Action<string> logger = message => Console.WriteLine($"[LOG {DateTime.Now:HH:mm:ss}] {message}");
+var notificationService = new NotificationService();
+var loggingService = new LoggingService();
+var eventOrder = new Order(customers[0]);
+
+eventOrder.OrderPaid += notificationService.HandleOrderPaid;
+eventOrder.OrderPaid += loggingService.HandleOrderPaid;
+
+eventOrder.AddItem(mouse, 1, logger);
+eventOrder.AddItem(keyboard, 1, logger);
+eventOrder.RemoveItem(mouse.Id, logger);
+eventOrder.Pay(new CardPayment("1111"), logger);
+
+var discountPolicies = new Dictionary<string, Func<decimal, decimal>>
+{
+    ["No discount"] = total => total,
+    ["10% discount"] = total => total * 0.90m,
+    ["20% discount"] = total => total * 0.80m
+};
+
+Console.WriteLine("Discount policies for the event order:");
+foreach (var (name, policy) in discountPolicies)
+{
+    Console.WriteLine($"{name}: {policy(eventOrder.Total):F2} UAH");
+}
+
+Predicate<Order> isLargeOrder = order => order.Total >= 5000m;
+Console.WriteLine($"Is the event order large: {isLargeOrder(eventOrder)}");
+Console.WriteLine($"Extension summary: {eventOrder.GetSummary()}");
+Console.WriteLine($"Extension IsLargeOrder(): {eventOrder.IsLargeOrder()}");
 
 PrintHeading("1. Orders with total greater than 1000");
 foreach (var order in ordersOver1000)
