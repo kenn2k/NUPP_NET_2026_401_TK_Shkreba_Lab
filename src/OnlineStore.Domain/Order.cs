@@ -57,12 +57,7 @@ public sealed class Order
 
     public PaymentReceipt Pay(IPaymentMethod paymentMethod, Action<string>? logger = null)
     {
-        EnsureCreated();
-
-        if (_items.Count == 0)
-        {
-            throw new InvalidOperationException("An empty order cannot be paid.");
-        }
+        EnsurePaymentCanBeCompleted();
 
         ArgumentNullException.ThrowIfNull(paymentMethod);
 
@@ -127,6 +122,16 @@ public sealed class Order
         if (Status != OrderStatus.Created)
         {
             throw new InvalidOperationException($"An order with status {Status} cannot be changed or paid.");
+        }
+    }
+
+    private void EnsurePaymentCanBeCompleted()
+    {
+        EnsureCreated();
+
+        if (_items.Count == 0)
+        {
+            throw new InvalidOperationException("An empty order cannot be paid.");
         }
     }
 }

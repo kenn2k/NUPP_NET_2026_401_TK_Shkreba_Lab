@@ -1,7 +1,7 @@
 using OnlineStore.Domain;
 using OnlineStore.App.Services;
 
-Console.WriteLine("OnlineStore — Laboratory Work 5");
+Console.WriteLine("OnlineStore — Laboratory Work 6");
 Console.WriteLine("Student: Anton Shkreba | Group: 301 TK | Variant: 1");
 Console.WriteLine();
 
@@ -143,6 +143,56 @@ Console.WriteLine($"Is the event order large: {isLargeOrder(eventOrder)}");
 Console.WriteLine($"Extension summary: {eventOrder.GetSummary()}");
 Console.WriteLine($"Extension IsLargeOrder(): {eventOrder.IsLargeOrder()}");
 
+PrintHeading("Laboratory Work 6: validation and exception handling");
+Console.Write("Enter a positive quantity for a validation demo (press Enter to use 2): ");
+var quantityInput = Console.ReadLine();
+if (string.IsNullOrWhiteSpace(quantityInput))
+{
+    quantityInput = "2";
+}
+
+if (!int.TryParse(quantityInput, out var validQuantity) || validQuantity <= 0)
+{
+    Console.WriteLine("Input is not a positive integer. Using the default value 2.");
+    validQuantity = 2;
+}
+
+var validationOrder = new Order(customers[0]);
+var successfulPaymentEvents = 0;
+validationOrder.OrderPaid += (_, _) => successfulPaymentEvents++;
+
+validationOrder.AddItem(mouse, validQuantity, logger);
+Console.WriteLine($"Correct operation: {validationOrder.Items.Count} item type was added.");
+
+TryOperation("Create product with an empty name", () =>
+{
+    _ = new Product(" ", 100m, "Accessories");
+});
+
+TryOperation("Create product with zero price", () =>
+{
+    _ = new Product("Invalid product", 0m, "Accessories");
+});
+
+var itemCountBeforeInvalidQuantity = validationOrder.Items.Count;
+TryOperation("Add item with quantity = -2", () => validationOrder.AddItem(keyboard, -2, logger));
+Console.WriteLine($"Order after invalid quantity: status {validationOrder.Status}, item types {validationOrder.Items.Count} (was {itemCountBeforeInvalidQuantity}).");
+
+validationOrder.Pay(new CardPayment("2222"), logger);
+Console.WriteLine($"Correct payment: status {validationOrder.Status}, OrderPaid events {successfulPaymentEvents}.");
+
+TryOperation("Change a paid order", () => validationOrder.AddItem(keyboard, 1, logger));
+TryOperation("Pay an already paid order", () => validationOrder.Pay(new CardPayment("3333"), logger));
+
+var cancelledOrder = new Order(customers[1]);
+cancelledOrder.AddItem(mouse, 1);
+cancelledOrder.Cancel();
+var failedPaymentEvents = 0;
+cancelledOrder.OrderPaid += (_, _) => failedPaymentEvents++;
+
+TryOperation("Pay a cancelled order", () => cancelledOrder.Pay(new CardPayment("4444"), logger));
+Console.WriteLine($"Cancelled order after failed payment: status {cancelledOrder.Status}, OrderPaid events {failedPaymentEvents}.");
+
 PrintHeading("1. Orders with total greater than 1000");
 foreach (var order in ordersOver1000)
 {
@@ -218,4 +268,31 @@ static void PrintHeading(string heading)
 {
     Console.WriteLine();
     Console.WriteLine(heading);
+}
+
+static void TryOperation(string operation, Action action)
+{
+    Console.WriteLine($"Operation: {operation}");
+
+    try
+    {
+        action();
+        Console.WriteLine("Result: completed successfully.");
+    }
+    catch (ArgumentOutOfRangeException ex)
+    {
+        Console.WriteLine($"Error (out of range): {ex.Message}");
+    }
+    catch (ArgumentException ex)
+    {
+        Console.WriteLine($"Error (invalid argument): {ex.Message}");
+    }
+    catch (InvalidOperationException ex)
+    {
+        Console.WriteLine($"Error (invalid operation): {ex.Message}");
+    }
+    finally
+    {
+        Console.WriteLine("Operation handling finished.");
+    }
 }
