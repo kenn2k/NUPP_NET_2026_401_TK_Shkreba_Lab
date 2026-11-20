@@ -2,24 +2,26 @@ namespace OnlineStore.Domain;
 
 public sealed class Customer
 {
-    public Customer(string fullName, string email)
+    public Guid Id { get; } = Guid.NewGuid();
+
+    public required string Name { get; init; }
+
+    public required string Email { get; init; }
+
+    public required Address Address { get; init; }
+
+    public string? PhoneNumber { get; init; }
+
+    public void Validate()
     {
-        if (string.IsNullOrWhiteSpace(fullName))
+        if (string.IsNullOrWhiteSpace(Name))
         {
-            throw new ArgumentException("Customer name is required.", nameof(fullName));
+            throw new InvalidOperationException("Customer name is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
+        if (string.IsNullOrWhiteSpace(Email) || !Email.Contains('@'))
         {
-            throw new ArgumentException("A valid email is required.", nameof(email));
+            throw new InvalidOperationException("A valid email is required.");
         }
-
-        Id = Guid.NewGuid();
-        FullName = fullName;
-        Email = email;
     }
-
-    public Guid Id { get; }
-    public string FullName { get; }
-    public string Email { get; }
 }

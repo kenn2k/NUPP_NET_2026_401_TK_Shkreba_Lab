@@ -2,7 +2,9 @@ namespace OnlineStore.Domain;
 
 public enum OrderStatus
 {
-    Draft,
+    Created,
     Paid,
+    Shipped,
+    Delivered,
     Cancelled
 }
