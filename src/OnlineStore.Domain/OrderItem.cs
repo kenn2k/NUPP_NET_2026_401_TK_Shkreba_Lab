@@ -6,11 +6,7 @@ public sealed class OrderItem
     {
         Product = product ?? throw new ArgumentNullException(nameof(product));
 
-        if (quantity <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(quantity), "Quantity must be greater than zero.");
-        }
-
+        EnsurePositiveQuantity(quantity);
         Quantity = quantity;
     }
 
@@ -20,11 +16,15 @@ public sealed class OrderItem
 
     internal void IncreaseQuantity(int quantity)
     {
+        EnsurePositiveQuantity(quantity);
+        Quantity += quantity;
+    }
+
+    private static void EnsurePositiveQuantity(int quantity)
+    {
         if (quantity <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(quantity), "Quantity must be greater than zero.");
         }
-
-        Quantity += quantity;
     }
 }
