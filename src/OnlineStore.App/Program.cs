@@ -3,8 +3,11 @@ using OnlineStore.App.Services;
 using OnlineStore.App.Reports;
 using Microsoft.Extensions.Configuration;
 using System.Text.Json;
+using System.Net.Http.Json;
+using System.Diagnostics;
+using OnlineStore.App.External;
 
-Console.WriteLine("OnlineStore — Laboratory Work 7");
+Console.WriteLine("OnlineStore — Laboratory Work 8");
 Console.WriteLine("Student: Anton Shkreba | Group: 301 TK | Variant: 1");
 Console.WriteLine();
 
@@ -235,6 +238,53 @@ await File.WriteAllTextAsync(invalidReportPath, "{ invalid JSON }");
 await ReadReportsAsync(invalidReportPath);
 File.Delete(invalidReportPath);
 
+PrintHeading("Laboratory Work 8: external customer contacts");
+var apiBaseUrl = configuration["ExternalApi:BaseUrl"]
+    ?? throw new InvalidOperationException("ExternalApi:BaseUrl is not configured.");
+var timeoutSeconds = int.TryParse(configuration["ExternalApi:TimeoutSeconds"], out var configuredTimeout)
+    ? configuredTimeout
+    : 10;
+
+using var httpClient = new HttpClient { BaseAddress = new Uri(apiBaseUrl) };
+using var cancellationSource = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+var stopwatch = Stopwatch.StartNew();
+
+try
+{
+    Console.WriteLine("Loading external customer contacts...");
+    var contactTasks = Enumerable.Range(1, 3)
+        .Select(id => GetUserAsync(httpClient, id, cancellationSource.Token));
+    var externalUsers = await Task.WhenAll(contactTasks);
+    var receivedContacts = externalUsers.OfType<ExternalUser>().ToList();
+
+    Console.WriteLine($"Received: {receivedContacts.Count}");
+    foreach (var externalUser in receivedContacts)
+    {
+        Console.WriteLine($"{externalUser.Id} | {externalUser.Name} | {externalUser.Email}");
+    }
+
+    Console.WriteLine("ExternalUser is a reference-contact DTO; it does not create internal Customer records or orders.");
+}
+catch (OperationCanceledException)
+{
+    Console.WriteLine($"External API request was cancelled after {timeoutSeconds} seconds.");
+}
+catch (HttpRequestException ex)
+{
+    Console.WriteLine($"External API request failed: {ex.Message}");
+}
+catch (JsonException ex)
+{
+    Console.WriteLine($"External API returned invalid JSON: {ex.Message}");
+}
+finally
+{
+    stopwatch.Stop();
+    Console.WriteLine($"External contacts operation took {stopwatch.ElapsedMilliseconds} ms.");
+}
+
+await DemonstrateHttpErrorAsync(httpClient);
+
 PrintHeading("1. Orders with total greater than 1000");
 foreach (var order in ordersOver1000)
 {
@@ -391,4 +441,22 @@ static async Task<IReadOnlyList<OrderReport>> ReadReportsAsync(string filePath)
     }
 
     return [];
+}
+
+static async Task<ExternalUser?> GetUserAsync(HttpClient client, int id, CancellationToken token)
+{
+    return await client.GetFromJsonAsync<ExternalUser>($"users/{id}", token);
+}
+
+static async Task DemonstrateHttpErrorAsync(HttpClient client)
+{
+    try
+    {
+        using var response = await client.GetAsync("not-a-real-endpoint");
+        response.EnsureSuccessStatusCode();
+    }
+    catch (HttpRequestException ex)
+    {
+        Console.WriteLine($"Handled HTTP error: {ex.StatusCode?.ToString() ?? "unknown status"}.");
+    }
 }
