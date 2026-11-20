@@ -19,8 +19,9 @@ public sealed class Order
     public OrderStatus Status { get; private set; }
     public IReadOnlyCollection<OrderItem> Items => _items.AsReadOnly();
     public decimal Total => _items.Sum(item => item.Subtotal);
+    public event EventHandler<Order>? OrderPaid;
 
-    public void AddItem(Product product, int quantity)
+    public void AddItem(Product product, int quantity, Action<string>? logger = null)
     {
         EnsureCreated();
 
@@ -35,13 +36,15 @@ public sealed class Order
         if (existingItem is not null)
         {
             existingItem.IncreaseQuantity(quantity);
+            logger?.Invoke($"Increased quantity of {product.Name} by {quantity}.");
             return;
         }
 
         _items.Add(new OrderItem(product, quantity));
+        logger?.Invoke($"Added {product.Name} x{quantity} to order {Id}.");
     }
 
-    public void RemoveItem(Guid productId)
+    public void RemoveItem(Guid productId, Action<string>? logger = null)
     {
         EnsureCreated();
 
@@ -49,9 +52,10 @@ public sealed class Order
             ?? throw new InvalidOperationException("The product is not in this order.");
 
         _items.Remove(item);
+        logger?.Invoke($"Removed {item.Product.Name} from order {Id}.");
     }
 
-    public PaymentReceipt Pay(IPaymentMethod paymentMethod)
+    public PaymentReceipt Pay(IPaymentMethod paymentMethod, Action<string>? logger = null)
     {
         EnsureCreated();
 
@@ -64,6 +68,8 @@ public sealed class Order
 
         var receipt = paymentMethod.Pay(Total);
         Status = OrderStatus.Paid;
+        logger?.Invoke($"Paid order {Id} for {Total:F2} UAH using {paymentMethod.Name}.");
+        OrderPaid?.Invoke(this, this);
         return receipt;
     }
 
