@@ -1,7 +1,10 @@
 using OnlineStore.Domain;
 using OnlineStore.App.Services;
+using OnlineStore.App.Reports;
+using Microsoft.Extensions.Configuration;
+using System.Text.Json;
 
-Console.WriteLine("OnlineStore — Laboratory Work 6");
+Console.WriteLine("OnlineStore — Laboratory Work 7");
 Console.WriteLine("Student: Anton Shkreba | Group: 301 TK | Variant: 1");
 Console.WriteLine();
 
@@ -193,6 +196,45 @@ cancelledOrder.OrderPaid += (_, _) => failedPaymentEvents++;
 TryOperation("Pay a cancelled order", () => cancelledOrder.Pay(new CardPayment("4444"), logger));
 Console.WriteLine($"Cancelled order after failed payment: status {cancelledOrder.Status}, OrderPaid events {failedPaymentEvents}.");
 
+PrintHeading("Laboratory Work 7: JSON export, import and configuration");
+var configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+var configuration = new ConfigurationBuilder()
+    .AddJsonFile(configPath, optional: false)
+    .Build();
+
+var relativeReportPath = configuration["Storage:FilePath"]
+    ?? throw new InvalidOperationException("Storage:FilePath is not configured.");
+var writeIndented = bool.TryParse(configuration["Storage:WriteIndented"], out var configuredWriteIndented)
+    && configuredWriteIndented;
+var reportPath = Path.Combine(AppContext.BaseDirectory, relativeReportPath);
+
+var reports = orders
+    .Select(order => new OrderReport(
+        order.Id,
+        order.Customer.Name,
+        order.Total,
+        order.GetStatusDescription(),
+        order.Items.Count))
+    .ToList();
+
+await WriteReportsAsync(reportPath, reports, writeIndented);
+var restoredReports = await ReadReportsAsync(reportPath);
+
+Console.WriteLine($"Restored orders: {restoredReports.Count}");
+Console.WriteLine($"Restored total: {restoredReports.Sum(report => report.Total):F2} UAH");
+foreach (var report in restoredReports.Take(5))
+{
+    Console.WriteLine($"{report.CustomerName}: {report.Total:F2} UAH, {report.Status}, {report.ItemsCount} item types");
+}
+
+var missingReportPath = Path.Combine(Path.GetDirectoryName(reportPath)!, "missing-report.json");
+await ReadReportsAsync(missingReportPath);
+
+var invalidReportPath = Path.Combine(Path.GetDirectoryName(reportPath)!, "invalid-report.json");
+await File.WriteAllTextAsync(invalidReportPath, "{ invalid JSON }");
+await ReadReportsAsync(invalidReportPath);
+File.Delete(invalidReportPath);
+
 PrintHeading("1. Orders with total greater than 1000");
 foreach (var order in ordersOver1000)
 {
@@ -295,4 +337,58 @@ static void TryOperation(string operation, Action action)
     {
         Console.WriteLine("Operation handling finished.");
     }
+}
+
+static async Task WriteReportsAsync(string filePath, IReadOnlyCollection<OrderReport> reports, bool writeIndented)
+{
+    try
+    {
+        var directoryPath = Path.GetDirectoryName(filePath)
+            ?? throw new InvalidOperationException("The report directory cannot be determined.");
+        Directory.CreateDirectory(directoryPath);
+
+        var json = JsonSerializer.Serialize(reports, new JsonSerializerOptions
+        {
+            WriteIndented = writeIndented
+        });
+
+        await File.WriteAllTextAsync(filePath, json);
+        Console.WriteLine($"JSON report created: {filePath}");
+    }
+    catch (UnauthorizedAccessException ex)
+    {
+        Console.WriteLine($"Cannot write the report: {ex.Message}");
+    }
+    catch (IOException ex)
+    {
+        Console.WriteLine($"File write error: {ex.Message}");
+    }
+}
+
+static async Task<IReadOnlyList<OrderReport>> ReadReportsAsync(string filePath)
+{
+    try
+    {
+        var json = await File.ReadAllTextAsync(filePath);
+        return JsonSerializer.Deserialize<List<OrderReport>>(json)
+            ?? throw new JsonException("The JSON report does not contain an order list.");
+    }
+    catch (FileNotFoundException)
+    {
+        Console.WriteLine($"Report file was not found: {filePath}");
+    }
+    catch (UnauthorizedAccessException ex)
+    {
+        Console.WriteLine($"Cannot read the report: {ex.Message}");
+    }
+    catch (JsonException ex)
+    {
+        Console.WriteLine($"Invalid JSON report: {ex.Message}");
+    }
+    catch (IOException ex)
+    {
+        Console.WriteLine($"File read error: {ex.Message}");
+    }
+
+    return [];
 }
