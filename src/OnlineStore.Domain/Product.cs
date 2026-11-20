@@ -20,9 +20,9 @@ public sealed class Product
         }
 
         Id = Guid.NewGuid();
-        Name = name;
+        Name = name.Trim();
         Price = price;
-        Category = category;
+        Category = category.Trim();
     }
 
     public Guid Id { get; }
