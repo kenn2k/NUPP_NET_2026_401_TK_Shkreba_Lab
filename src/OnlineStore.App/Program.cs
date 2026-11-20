@@ -1,7 +1,13 @@
 using OnlineStore.Domain;
 using OnlineStore.App.Services;
+using OnlineStore.App.Reports;
+using Microsoft.Extensions.Configuration;
+using System.Text.Json;
+using System.Net.Http.Json;
+using System.Diagnostics;
+using OnlineStore.App.External;
 
-Console.WriteLine("OnlineStore — Laboratory Work 5");
+Console.WriteLine("OnlineStore — Laboratory Work 8");
 Console.WriteLine("Student: Anton Shkreba | Group: 301 TK | Variant: 1");
 Console.WriteLine();
 
@@ -143,6 +149,142 @@ Console.WriteLine($"Is the event order large: {isLargeOrder(eventOrder)}");
 Console.WriteLine($"Extension summary: {eventOrder.GetSummary()}");
 Console.WriteLine($"Extension IsLargeOrder(): {eventOrder.IsLargeOrder()}");
 
+PrintHeading("Laboratory Work 6: validation and exception handling");
+Console.Write("Enter a positive quantity for a validation demo (press Enter to use 2): ");
+var quantityInput = Console.ReadLine();
+if (string.IsNullOrWhiteSpace(quantityInput))
+{
+    quantityInput = "2";
+}
+
+if (!int.TryParse(quantityInput, out var validQuantity) || validQuantity <= 0)
+{
+    Console.WriteLine("Input is not a positive integer. Using the default value 2.");
+    validQuantity = 2;
+}
+
+var validationOrder = new Order(customers[0]);
+var successfulPaymentEvents = 0;
+validationOrder.OrderPaid += (_, _) => successfulPaymentEvents++;
+
+validationOrder.AddItem(mouse, validQuantity, logger);
+Console.WriteLine($"Correct operation: {validationOrder.Items.Count} item type was added.");
+
+TryOperation("Create product with an empty name", () =>
+{
+    _ = new Product(" ", 100m, "Accessories");
+});
+
+TryOperation("Create product with zero price", () =>
+{
+    _ = new Product("Invalid product", 0m, "Accessories");
+});
+
+var itemCountBeforeInvalidQuantity = validationOrder.Items.Count;
+TryOperation("Add item with quantity = -2", () => validationOrder.AddItem(keyboard, -2, logger));
+Console.WriteLine($"Order after invalid quantity: status {validationOrder.Status}, item types {validationOrder.Items.Count} (was {itemCountBeforeInvalidQuantity}).");
+
+validationOrder.Pay(new CardPayment("2222"), logger);
+Console.WriteLine($"Correct payment: status {validationOrder.Status}, OrderPaid events {successfulPaymentEvents}.");
+
+TryOperation("Change a paid order", () => validationOrder.AddItem(keyboard, 1, logger));
+TryOperation("Pay an already paid order", () => validationOrder.Pay(new CardPayment("3333"), logger));
+
+var cancelledOrder = new Order(customers[1]);
+cancelledOrder.AddItem(mouse, 1);
+cancelledOrder.Cancel();
+var failedPaymentEvents = 0;
+cancelledOrder.OrderPaid += (_, _) => failedPaymentEvents++;
+
+TryOperation("Pay a cancelled order", () => cancelledOrder.Pay(new CardPayment("4444"), logger));
+Console.WriteLine($"Cancelled order after failed payment: status {cancelledOrder.Status}, OrderPaid events {failedPaymentEvents}.");
+
+PrintHeading("Laboratory Work 7: JSON export, import and configuration");
+var configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+var configuration = new ConfigurationBuilder()
+    .AddJsonFile(configPath, optional: false)
+    .Build();
+
+var relativeReportPath = configuration["Storage:FilePath"]
+    ?? throw new InvalidOperationException("Storage:FilePath is not configured.");
+var writeIndented = bool.TryParse(configuration["Storage:WriteIndented"], out var configuredWriteIndented)
+    && configuredWriteIndented;
+var reportPath = Path.Combine(AppContext.BaseDirectory, relativeReportPath);
+
+var reports = orders
+    .Select(order => new OrderReport(
+        order.Id,
+        order.Customer.Name,
+        order.Total,
+        order.GetStatusDescription(),
+        order.Items.Count))
+    .ToList();
+
+await WriteReportsAsync(reportPath, reports, writeIndented);
+var restoredReports = await ReadReportsAsync(reportPath);
+
+Console.WriteLine($"Restored orders: {restoredReports.Count}");
+Console.WriteLine($"Restored total: {restoredReports.Sum(report => report.Total):F2} UAH");
+foreach (var report in restoredReports.Take(5))
+{
+    Console.WriteLine($"{report.CustomerName}: {report.Total:F2} UAH, {report.Status}, {report.ItemsCount} item types");
+}
+
+var missingReportPath = Path.Combine(Path.GetDirectoryName(reportPath)!, "missing-report.json");
+await ReadReportsAsync(missingReportPath);
+
+var invalidReportPath = Path.Combine(Path.GetDirectoryName(reportPath)!, "invalid-report.json");
+await File.WriteAllTextAsync(invalidReportPath, "{ invalid JSON }");
+await ReadReportsAsync(invalidReportPath);
+File.Delete(invalidReportPath);
+
+PrintHeading("Laboratory Work 8: external customer contacts");
+var apiBaseUrl = configuration["ExternalApi:BaseUrl"]
+    ?? throw new InvalidOperationException("ExternalApi:BaseUrl is not configured.");
+var timeoutSeconds = int.TryParse(configuration["ExternalApi:TimeoutSeconds"], out var configuredTimeout)
+    ? configuredTimeout
+    : 10;
+
+using var httpClient = new HttpClient { BaseAddress = new Uri(apiBaseUrl) };
+using var cancellationSource = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+var stopwatch = Stopwatch.StartNew();
+
+try
+{
+    Console.WriteLine("Loading external customer contacts...");
+    var contactTasks = Enumerable.Range(1, 3)
+        .Select(id => GetUserAsync(httpClient, id, cancellationSource.Token));
+    var externalUsers = await Task.WhenAll(contactTasks);
+    var receivedContacts = externalUsers.OfType<ExternalUser>().ToList();
+
+    Console.WriteLine($"Received: {receivedContacts.Count}");
+    foreach (var externalUser in receivedContacts)
+    {
+        Console.WriteLine($"{externalUser.Id} | {externalUser.Name} | {externalUser.Email}");
+    }
+
+    Console.WriteLine("ExternalUser is a reference-contact DTO; it does not create internal Customer records or orders.");
+}
+catch (OperationCanceledException)
+{
+    Console.WriteLine($"External API request was cancelled after {timeoutSeconds} seconds.");
+}
+catch (HttpRequestException ex)
+{
+    Console.WriteLine($"External API request failed: {ex.Message}");
+}
+catch (JsonException ex)
+{
+    Console.WriteLine($"External API returned invalid JSON: {ex.Message}");
+}
+finally
+{
+    stopwatch.Stop();
+    Console.WriteLine($"External contacts operation took {stopwatch.ElapsedMilliseconds} ms.");
+}
+
+await DemonstrateHttpErrorAsync(httpClient);
+
 PrintHeading("1. Orders with total greater than 1000");
 foreach (var order in ordersOver1000)
 {
@@ -218,4 +360,103 @@ static void PrintHeading(string heading)
 {
     Console.WriteLine();
     Console.WriteLine(heading);
+}
+
+static void TryOperation(string operation, Action action)
+{
+    Console.WriteLine($"Operation: {operation}");
+
+    try
+    {
+        action();
+        Console.WriteLine("Result: completed successfully.");
+    }
+    catch (ArgumentOutOfRangeException ex)
+    {
+        Console.WriteLine($"Error (out of range): {ex.Message}");
+    }
+    catch (ArgumentException ex)
+    {
+        Console.WriteLine($"Error (invalid argument): {ex.Message}");
+    }
+    catch (InvalidOperationException ex)
+    {
+        Console.WriteLine($"Error (invalid operation): {ex.Message}");
+    }
+    finally
+    {
+        Console.WriteLine("Operation handling finished.");
+    }
+}
+
+static async Task WriteReportsAsync(string filePath, IReadOnlyCollection<OrderReport> reports, bool writeIndented)
+{
+    try
+    {
+        var directoryPath = Path.GetDirectoryName(filePath)
+            ?? throw new InvalidOperationException("The report directory cannot be determined.");
+        Directory.CreateDirectory(directoryPath);
+
+        var json = JsonSerializer.Serialize(reports, new JsonSerializerOptions
+        {
+            WriteIndented = writeIndented
+        });
+
+        await File.WriteAllTextAsync(filePath, json);
+        Console.WriteLine($"JSON report created: {filePath}");
+    }
+    catch (UnauthorizedAccessException ex)
+    {
+        Console.WriteLine($"Cannot write the report: {ex.Message}");
+    }
+    catch (IOException ex)
+    {
+        Console.WriteLine($"File write error: {ex.Message}");
+    }
+}
+
+static async Task<IReadOnlyList<OrderReport>> ReadReportsAsync(string filePath)
+{
+    try
+    {
+        var json = await File.ReadAllTextAsync(filePath);
+        return JsonSerializer.Deserialize<List<OrderReport>>(json)
+            ?? throw new JsonException("The JSON report does not contain an order list.");
+    }
+    catch (FileNotFoundException)
+    {
+        Console.WriteLine($"Report file was not found: {filePath}");
+    }
+    catch (UnauthorizedAccessException ex)
+    {
+        Console.WriteLine($"Cannot read the report: {ex.Message}");
+    }
+    catch (JsonException ex)
+    {
+        Console.WriteLine($"Invalid JSON report: {ex.Message}");
+    }
+    catch (IOException ex)
+    {
+        Console.WriteLine($"File read error: {ex.Message}");
+    }
+
+    return [];
+}
+
+static async Task<ExternalUser?> GetUserAsync(HttpClient client, int id, CancellationToken token)
+{
+    return await client.GetFromJsonAsync<ExternalUser>($"users/{id}", token);
+}
+
+static async Task DemonstrateHttpErrorAsync(HttpClient client)
+{
+    try
+    {
+        using var response = await client.GetAsync("not-a-real-endpoint");
+        response.EnsureSuccessStatusCode();
+    }
+    catch (HttpRequestException ex)
+    {
+        Console.WriteLine($"Handled HTTP error: {ex.StatusCode?.ToString() ?? "unknown status"}.");
+    }
 }
